@@ -18,6 +18,7 @@ HEADER = """
 
 #include <iostream>
 #include <string>
+#include <vector>
 #include <map>
 
 struct {{ schema["title"] }}
@@ -36,13 +37,13 @@ struct {{ schema["title"] }}
         writer.StartObject();
         {%- for property_name, property_dict  in schema["properties"].items() %}
         writer.Key("{{ property_dict["title"] }}");
-        writer.{{ writer_function_map[property_dict["type"]]  }}( {{ property_dict["title"]}}{{ getter_function_map[property_dict["type"]] }} );
+        {{ get_writer_code(property_dict) }} 
         {%- endfor %}
         writer.EndObject();
     }
 
     {%- for property_name, property_dict  in schema["properties"].items() %}
-    {{ type_map[property_dict["type"]] }} {{ property_dict["title"] }};
+    {{ get_property_type(property_dict) }} {{ property_dict["title"] }};
     {%- endfor %}
 
     bool operator==(const {{ schema["title"] }}& rhs) const
@@ -209,6 +210,51 @@ int main(int argc, char** argv)
 }
 """
 
+writer_function_map = {
+    "integer" : "Int",
+    "number" : "Double",
+    "boolean" : "Bool"
+}
+
+def get_writer_code(prop : dict, title = None):
+    type_name = prop["type"]
+    if title == None: title = prop["title"]
+
+    if type_name in writer_function_map:
+        return "writer." + writer_function_map[type_name] + "(" + title + ");"
+    elif type_name == "string":
+        return "writer.String("+ prop["title"] + ".c_str());"
+    elif type_name == "array":
+        write_array =  "writer.StartArray();\n"
+        write_array += "        for( auto it = " + title + ".begin(); it != " + title + ".end(); ++it)\n"
+        write_array += "        {\n"
+        write_array += "            " + get_writer_code(prop["items"], "(*it)") + "\n"
+        write_array += "        }\n"
+        write_array += "        writer.EndArray(" + title + ".size());"
+        return write_array
+
+    return None
+
+    
+
+# types
+basic_type_map = { 
+    "integer" : "int32_t",
+    "string" : "std::string",
+    "number" : "double",
+    "boolean" : "bool"
+}
+
+def get_property_type(prop : dict):
+    type_name = prop["type"]
+    if type_name in basic_type_map:
+        return basic_type_map[type_name]
+    if type_name == "array":
+        return "std::vector<" + get_property_type(prop["items"]) + ">"
+
+    return "void" 
+
+# test methods
 def random_string(len=10):
     letters = string.ascii_lowercase
     s = ''.join(random.choice(letters) for i in range(len))
@@ -223,31 +269,16 @@ def random_double():
 def random_bool():
     return random.choice(["true", "false"])
 
-type_map = { 
-    "integer" : "int32_t",
-    "string" : "std::string",
-    "number" : "double",
-    "boolean" : "bool"
-}
-
-writer_function_map = {
-    "integer" : "Int",
-    "string" : "String",
-    "number" : "Double",
-    "boolean" : "Bool"
-}
-
-getter_function_map = {
-    "string" : ".c_str()"
-}
+def random_array():
+    return "{}"
 
 random_function_map = {
     "integer" : random_int,
     "string" : random_string,
     "number" : random_double,
-    "boolean" : random_bool
+    "boolean" : random_bool,
+    "array" : random_array
 }
-
 
 templates = Environment(loader=DictLoader(globals()))
 
@@ -259,9 +290,8 @@ def generate_header(schema_class):
     
     rendered = template.render( 
         { "schema" : schema,
-          "type_map" : type_map,
-          "writer_function_map" : writer_function_map,
-          "getter_function_map" : getter_function_map
+          "get_property_type" : get_property_type,
+          "get_writer_code" : get_writer_code,
         } 
     )
     header = open("Json"+schema["title"]+".h", "w+")
@@ -275,7 +305,7 @@ def generate_test(schema_class):
     
     rendered = template.render( 
         { "schema" : schema,
-          "type_map" : type_map,
+          "get_property_type" : get_property_type,
           "random_function_map" : random_function_map
         } 
     )

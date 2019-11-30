@@ -66,69 +66,73 @@ struct {{ schema["title"] }}Handler
         Object = ParseObject;
     }
 
+    template<typename T>
+    void WriteProperty(const T& Value)
+    {
+        T& Property = *reinterpret_cast<T*>(CurrentProperty);
+        Property = Value;
+        
+        CurrentProperty = nullptr;
+    }
+
+    template<typename T>
+    void WriteArray(const T& Value)
+    {
+        std::vector<T>& PropertyArray = *reinterpret_cast<std::vector<T>*>(CurrentProperty);
+        PropertyArray.push_back(Value);
+    }
+
+    template<typename T>
+    bool WriteType(const T& Value)
+    {
+        if(!CurrentProperty)
+        {
+            return false;
+        }
+
+        if(CurrentArray)
+        {
+            WriteArray(Value);
+            return true;
+        }
+        else
+        {
+            WriteProperty(Value);
+        }
+
+        return false;
+    }
+
     bool Null() { std::cout << "Null()" << std::endl; return true; }
 
     bool Bool(bool b) 
     { 
-        if(!CurrentProperty)
-        {
-            return false;
-        }
-
-        bool& PropertyBool = *reinterpret_cast<bool*>(CurrentProperty);
-        PropertyBool = b;
-        
-        CurrentProperty = nullptr;
-
-        return true;
+        return WriteType(b);
     }
 
     bool Int(int i)
     {
-        if(!CurrentProperty)
-        {
-            return false;
-        }
-
-        int32_t& PropertyInt = *reinterpret_cast<int32_t*>(CurrentProperty);
-        PropertyInt = i;
-        
-        CurrentProperty = nullptr;
-
-        return true;
+        return WriteType(i);
     }
 
     bool Uint(unsigned u) 
     { 
-        if(!CurrentProperty)
-        {
-            return false;
-        }
-
-        uint32_t& PropertyUInt = *reinterpret_cast<uint32_t*>(CurrentProperty);
-        PropertyUInt = u;
-        
-        CurrentProperty = nullptr;
-
-        return true;
+        return WriteType(u);
     }
 
-    bool Int64(int64_t i) { std::cout << "Int64(" << i << ")" << std::endl; return true; }
-    bool Uint64(uint64_t u) { std::cout << "Uint64(" << u << ")" << std::endl; return true; }
+    bool Int64(int64_t i) 
+    { 
+        return WriteType(i);
+    }
+
+    bool Uint64(uint64_t u) 
+    {
+        return WriteType(u);
+    }
 
     bool Double(double d) 
     {
-        if(!CurrentProperty)
-        {
-            return false;
-        }
-
-        double& PropertyDouble = *reinterpret_cast<double*>(CurrentProperty);
-        PropertyDouble = d;
-        
-        CurrentProperty = nullptr;
-
-        return true;
+        return WriteType(d);
     }
     
     bool RawNumber(const char* str, rapidjson::SizeType length, bool copy) 
@@ -144,10 +148,19 @@ struct {{ schema["title"] }}Handler
             return false;
         }
 
-        std::string& PropertyString = *reinterpret_cast<std::string*>(CurrentProperty);
-        PropertyString = std::string(str, length);
+        if(CurrentArray)
+        {
+            std::string str = std::string(str, length);
+            WriteArray(str);
+            return true;
+        }
+        else
+        {
+            std::string& PropertyString = *reinterpret_cast<std::string*>(CurrentProperty);
+            PropertyString = std::string(str, length);
 
-        CurrentProperty = nullptr;
+            CurrentProperty = nullptr;
+        }
      
         return true;
     }
@@ -159,6 +172,7 @@ struct {{ schema["title"] }}Handler
         if(it != Object->PropertyMap.end())
         {
             CurrentProperty = it->second;
+            CurrentPropertyName = str;
             return true;
         }
         else
@@ -169,11 +183,32 @@ struct {{ schema["title"] }}Handler
 
     bool StartObject() { std::cout << "StartObject()" << std::endl; return true; }
     bool EndObject(rapidjson::SizeType memberCount) { std::cout << "EndObject(" << memberCount << ")" << std::endl; return true; }
-    bool StartArray() { std::cout << "StartArray()" << std::endl; return true; }
-    bool EndArray(rapidjson::SizeType elementCount) { std::cout << "EndArray(" << elementCount << ")" << std::endl; return true; }
+
+    bool StartArray() 
+    { 
+        const auto it = Object->PropertyMap.find(CurrentPropertyName);
+
+        if(it != Object->PropertyMap.end())
+        {
+            CurrentArray = it->second;
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    bool EndArray(rapidjson::SizeType elementCount)
+    { 
+        CurrentProperty = nullptr;
+        CurrentArray = nullptr;
+    }
 
     {{ schema["title"] }}* Object = nullptr;
     void* CurrentProperty = nullptr;
+    void* CurrentArray= nullptr;
+    std::string CurrentPropertyName;
 };
 
 """

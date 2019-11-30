@@ -73,6 +73,7 @@ struct {{ schema["title"] }}Handler
         Property = Value;
         
         CurrentProperty = nullptr;
+        CurrentPropertyName = "";
     }
 
     template<typename T>
@@ -87,6 +88,7 @@ struct {{ schema["title"] }}Handler
     {
         if(!CurrentProperty)
         {
+            std::cerr << "WriteType no CurrentProperty" << std::endl; return true;
             return false;
         }
 
@@ -98,6 +100,7 @@ struct {{ schema["title"] }}Handler
         else
         {
             WriteProperty(Value);
+            return true;
         }
 
         return false;
@@ -145,6 +148,7 @@ struct {{ schema["title"] }}Handler
     { 
         if(!CurrentProperty)
         {
+            std::cerr << "String no CurrentProperty" << std::endl; return true;
             return false;
         }
 
@@ -160,6 +164,7 @@ struct {{ schema["title"] }}Handler
             PropertyString = std::string(str, length);
 
             CurrentProperty = nullptr;
+            CurrentPropertyName = "";
         }
      
         return true;
@@ -177,6 +182,7 @@ struct {{ schema["title"] }}Handler
         }
         else
         {
+            std::cerr << "Key Property Not Found:" << str << std::endl; return true;
             return false;
         }
     }
@@ -186,6 +192,12 @@ struct {{ schema["title"] }}Handler
 
     bool StartArray() 
     { 
+        if(CurrentPropertyName.empty())
+        {
+            std::cerr << "StartArray Property " << CurrentPropertyName << "not found!" << std::endl;
+            return false;
+        }
+
         const auto it = Object->PropertyMap.find(CurrentPropertyName);
 
         if(it != Object->PropertyMap.end())
@@ -195,6 +207,7 @@ struct {{ schema["title"] }}Handler
         }
         else
         {
+            std::cerr << "StartArray Property " << CurrentPropertyName << "not found!" << std::endl;
             return false;
         }
     }
@@ -203,6 +216,7 @@ struct {{ schema["title"] }}Handler
     { 
         CurrentProperty = nullptr;
         CurrentArray = nullptr;
+        return true;
     }
 
     {{ schema["title"] }}* Object = nullptr;
@@ -221,7 +235,7 @@ int main(int argc, char** argv)
 {
     {{ schema["title"] }} WriteObject;
     {%- for property_name, property_dict  in schema["properties"].items() %}
-    WriteObject.{{ property_dict["title"] }} = {{ random_function_map[property_dict["type"]]() }};
+    WriteObject.{{ property_dict["title"] }} = {{ get_random_property(property_dict) }};
     {%- endfor %}
     {{ schema["title"] }} ReadObject;
 
@@ -237,8 +251,12 @@ int main(int argc, char** argv)
     bool Equals = WriteObject == ReadObject;
     if(!Equals)
     {
-        fprintf(stderr, "Objects not equals.");
+        std::cerr << "Objects not equals." << std::endl;
         return 1;
+    }
+    else
+    {
+        std::cout << "Objects are equals." << std::endl;
     }
 
     return 0;
@@ -304,16 +322,23 @@ def random_double():
 def random_bool():
     return random.choice(["true", "false"])
 
-def random_array():
-    return "{}"
-
 random_function_map = {
     "integer" : random_int,
     "string" : random_string,
     "number" : random_double,
-    "boolean" : random_bool,
-    "array" : random_array
+    "boolean" : random_bool
 }
+
+def get_random_property(prop):
+    type_name = prop["type"]
+    if type_name in random_function_map:
+        return random_function_map[type_name]()
+    if type_name == "array":
+        array =[str(get_random_property(prop["items"])) for i in range(10)]
+        return "{" +",".join(array) + "}"
+
+    return "void" 
+
 
 templates = Environment(loader=DictLoader(globals()))
 
@@ -341,7 +366,7 @@ def generate_test(schema_class):
     rendered = template.render( 
         { "schema" : schema,
           "get_property_type" : get_property_type,
-          "random_function_map" : random_function_map
+          "get_random_property" : get_random_property
         } 
     )
     test = open("Json"+schema["title"]+"Test.cpp", "w+")
